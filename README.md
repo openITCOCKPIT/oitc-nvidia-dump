@@ -41,8 +41,8 @@ DGX Spark have no own memory, `nvidia-smi` reports "Not Supported" there.
 - The names and memory usage of the processes using the GPUs (e.g. `python3`, `ollama`)
 - The duration of every command
 
-By default serial numbers, UUIDs and the host name are replaced by placeholders (`SERIAL0001`,
-`GPU-00000000-0000-0000-0000-000000000001`, `host`). The same value gets the same placeholder in all outputs. Use `-raw`
+By default serial numbers, UUIDs, the host name and the user names in paths (`C:\Users\name\...`, `/home/name/...`)
+are replaced by placeholders (`SERIAL0001`, `GPU-00000000-0000-0000-0000-000000000001`, `host`, `user`). The same value gets the same placeholder in all outputs. Use `-raw`
 to keep the original values.
 
 Please have a look at the JSON file before you send it, e.g. the process names and the messages of the kernel log.
@@ -57,18 +57,18 @@ The tool is a single static binary without dependencies. It only needs the NVIDI
 Run the tool as root, otherwise the kernel log may not be readable:
 
 ```
-chmod +x oitc-nvidia-dump-1.0-linux-amd64
-sudo ./oitc-nvidia-dump-1.0-linux-amd64 -o nvidia-dump.json
+chmod +x oitc-nvidia-dump-1.1-linux-amd64
+sudo ./oitc-nvidia-dump-1.1-linux-amd64 -o nvidia-dump.json
 ```
 
-Use `oitc-nvidia-dump-1.0-linux-arm64` on ARM systems like the DGX Spark or Grace (GH200/GB200) systems.
+Use `oitc-nvidia-dump-1.1-linux-arm64` on ARM systems like the DGX Spark or Grace (GH200/GB200) systems.
 
 ### Windows
 
 Run the tool in a command prompt (as administrator to read the event log completely):
 
 ```
-oitc-nvidia-dump-1.0-windows-amd64.exe -o nvidia-dump.json
+oitc-nvidia-dump-1.1-windows-amd64.exe -o nvidia-dump.json
 ```
 
 ### Output
@@ -91,7 +91,7 @@ Options:
 -o string              output file (default "nvidia-dump.json")
 -days int              days of the kernel log (Linux) or event log (Windows) (default 14)
 -dcgm-exporter string  URL of the dcgm-exporter, empty to skip (default "http://127.0.0.1:9400/metrics")
--raw                   do not replace serial numbers, UUIDs and the host name
+-raw                   do not replace serial numbers, UUIDs, the host name and user names
 -timeout duration      timeout (default 10m0s)
 -version               print the version
 ```
@@ -110,7 +110,7 @@ Please open an issue in this repository and attach the JSON file. Please tell us
 ```json
 {
   "tool": "oitc-nvidia-dump",
-  "version": "1.0",
+  "version": "1.1",
   "created": "2026-10-20T16:00:00+02:00",
   "os": "linux/amd64",
   "anonymized": true,

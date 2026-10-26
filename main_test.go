@@ -154,3 +154,43 @@ func TestCollect(t *testing.T) {
 		t.Errorf("missing platform information: %v", d.Platform)
 	}
 }
+
+func TestAnonymizeShortSerial(t *testing.T) {
+	// GeForce GPUs report the serial number 0
+	d := &dump{Commands: []*commandResult{
+		{Name: "query", Stdout: `<?xml version="1.0" ?><gpu id="00000000:01:00.0"><serial>0</serial><fan_speed>30 %</fan_speed></gpu>`},
+		{Name: "dcgm-exporter", Error: `Get "http://127.0.0.1:9400/metrics": connection refused`},
+	}}
+	anonymize(d)
+	if d.Commands[0].Stdout != `<?xml version="1.0" ?><gpu id="00000000:01:00.0"><serial>0</serial><fan_speed>30 %</fan_speed></gpu>` ||
+		d.Commands[1].Error != `Get "http://127.0.0.1:9400/metrics": connection refused` {
+		t.Errorf("unexpected change: %+v %+v", d.Commands[0], d.Commands[1])
+	}
+}
+
+func TestReplaceWholeValue(t *testing.T) {
+	tests := map[string]string{
+		"1650123456789":                       "S1",
+		"a 1650123456789 1650123456789 b":     "a S1 S1 b",
+		"x1650123456789, 16501234567890":      "x1650123456789, 16501234567890",
+		"<serial>1650123456789</serial>":      "<serial>S1</serial>",
+		`serial="1650123456789",uuid="GPU-1"`: `serial="S1",uuid="GPU-1"`,
+	}
+	for in, want := range tests {
+		if got := replaceWholeValue(in, "1650123456789", "S1"); got != want {
+			t.Errorf("%q: got %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestAnonymizeUserPaths(t *testing.T) {
+	d := &dump{Commands: []*commandResult{
+		{Name: "query", Stdout: `<process_name>C:\Users\jdoe\AppData\Roaming\Spotify\Spotify.exe</process_name><process_name>C:\Windows\explorer.exe</process_name>`},
+		{Name: "compute-apps", Stdout: "GPU-1a2b3c4d-1111-2222-3333-444455556666, 1234, /home/jdoe/venv/bin/python3, 1024 MiB\n"},
+	}}
+	anonymize(d)
+	if d.Commands[0].Stdout != `<process_name>C:\Users\user\AppData\Roaming\Spotify\Spotify.exe</process_name><process_name>C:\Windows\explorer.exe</process_name>` ||
+		d.Commands[1].Stdout != "GPU-00000000-0000-0000-0000-000000000001, 1234, /home/user/venv/bin/python3, 1024 MiB\n" {
+		t.Errorf("user names not replaced: %q %q", d.Commands[0].Stdout, d.Commands[1].Stdout)
+	}
+}

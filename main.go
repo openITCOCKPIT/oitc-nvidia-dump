@@ -27,7 +27,7 @@ import (
 	"time"
 )
 
-const version = "1.0"
+const version = "1.1"
 
 // Fields of nvidia-smi --query-gpu. Only the fields which the installed driver knows (--help-query-gpu) are queried,
 // e.g. clocks_event_reasons.* replaced clocks_throttle_reasons.* in newer drivers.
@@ -87,7 +87,7 @@ func main() {
 	timeout := flag.Duration("timeout", 10*time.Minute, "timeout")
 	days := flag.Int("days", 14, "days of the kernel log (Linux) or event log (Windows)")
 	dcgmURL := flag.String("dcgm-exporter", "http://127.0.0.1:9400/metrics", "URL of the dcgm-exporter, empty to skip")
-	raw := flag.Bool("raw", false, "do not replace serial numbers, UUIDs and the host name")
+	raw := flag.Bool("raw", false, "do not replace serial numbers, UUIDs, the host name and user names")
 	showVersion := flag.Bool("version", false, "print the version")
 	flag.Usage = func() {
 		fmt.Fprintf(flag.CommandLine.Output(), "oitc-nvidia-dump %s - collects the GPU information of the NVIDIA driver (read only) and writes it to a JSON file\n\nUsage: %s [options]\n\n", version, os.Args[0])
@@ -435,17 +435,25 @@ var (
 	xmlSerialPattern = regexp.MustCompile(`<([a-z_]*serial[a-z_]*)>([^<]+)</`)
 	csvSerialPattern = regexp.MustCompile(`(?i)\bserial="([^"]+)"`)
 	hostnameLabel    = regexp.MustCompile(`(?i)\bhostname="[^"]*"`)
+	// The process paths contain the user name, e.g. C:\Users\name\AppData\... or /home/name/...
+	windowsUserPath = regexp.MustCompile(`(?i)(\\Users\\)[^\\"<>\r\n]+`)
+	linuxUserPath   = regexp.MustCompile(`(/home/)[^/"<>\s]+`)
 )
 
 const serialPlaceholder = "SERIAL%04d"
 
-// anonymize replaces UUIDs, serial numbers and the host name by placeholders. The same value gets the same
+// anonymize replaces UUIDs, serial numbers, the host name and user names in paths by placeholders. The same value gets the same
 // placeholder in all outputs, so the GPUs can still be assigned between the outputs.
 func anonymize(d *dump) {
 	serials := map[string]string{}
 	addSerial := func(value string) {
 		value = strings.TrimSpace(value)
 		if value == "" || strings.EqualFold(value, "N/A") || strings.HasPrefix(value, "[") || serials[value] != "" {
+			return
+		}
+		// GeForce GPUs report the serial number 0, which identifies nothing. Short values would also replace parts of
+		// other values, e.g. every 0 of all outputs.
+		if len(value) < 4 || strings.Trim(value, "0") == "" {
 			return
 		}
 		serials[value] = fmt.Sprintf(serialPlaceholder, len(serials)+1)
@@ -481,9 +489,11 @@ func anonymize(d *dump) {
 			return uuids[key]
 		})
 		for _, value := range values {
-			text = strings.ReplaceAll(text, value, serials[value])
+			text = replaceWholeValue(text, value, serials[value])
 		}
 		text = hostnameLabel.ReplaceAllString(text, `Hostname="host"`)
+		text = windowsUserPath.ReplaceAllString(text, "${1}user")
+		text = linuxUserPath.ReplaceAllString(text, "${1}user")
 		if len(hostname) >= 3 {
 			text = strings.ReplaceAll(text, hostname, "host")
 		}
@@ -493,6 +503,29 @@ func anonymize(d *dump) {
 		c.Stdout = replace(c.Stdout)
 		c.Stderr = replace(c.Stderr)
 		c.Error = replace(c.Error)
+	}
+}
+
+// replaceWholeValue replaces the value only if it is not part of a longer alphanumeric value
+func replaceWholeValue(text, value, replacement string) string {
+	isAlnum := func(c byte) bool {
+		return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+	}
+	var b strings.Builder
+	for {
+		i := strings.Index(text, value)
+		if i < 0 {
+			b.WriteString(text)
+			return b.String()
+		}
+		end := i + len(value)
+		if (i > 0 && isAlnum(text[i-1])) || (end < len(text) && isAlnum(text[end])) {
+			b.WriteString(text[:end])
+		} else {
+			b.WriteString(text[:i])
+			b.WriteString(replacement)
+		}
+		text = text[end:]
 	}
 }
 
